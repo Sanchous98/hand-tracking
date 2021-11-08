@@ -1,7 +1,31 @@
 import cv2.cv2 as cv
+from event_dispatcher import Event, EventDispatcher
 from hand_detector import HandDetector, Fingers
-import autopy
 import numpy as np
+import pyautogui
+
+
+class Move(Event):
+    def __init__(self, x: int, y: int):
+        super().__init__()
+        self.x = x
+        self.y = y
+
+    @property
+    def name(self) -> str:
+        return "mouse.move"
+
+
+class Click(Event):
+    @property
+    def name(self) -> str:
+        return "mouse.click"
+
+
+class DoubleClick(Event):
+    @property
+    def name(self) -> str:
+        return "mouse.dblclick"
 
 
 class VirtualMouse:
@@ -17,8 +41,7 @@ class VirtualMouse:
         self.capture.set(cv.CAP_PROP_FRAME_WIDTH, camera_width)
         self.capture.set(cv.CAP_PROP_FRAME_HEIGHT, camera_height)
 
-        self.screen_width, self.screen_height = autopy.screen.size()
-        self.screen_width, self.screen_height = int(self.screen_width), int(self.screen_height)
+        self.screen_width, self.screen_height = pyautogui.size()
         scale = self.screen_height / self.camera_height / 0.75
         self.box_width, self.box_height = self.screen_width / scale, self.screen_height / scale
 
@@ -33,9 +56,8 @@ class VirtualMouse:
 
         _, image = self.capture.read()
         self.hand_detector.image = image
-        hands = self.hand_detector.find_hands()
 
-        for hand in hands:
+        for hand in self.hand_detector.hands:
             x1, y1 = hand.get_finger_by_tip(Fingers.INDEX).landmarks[0][1:3]
             # x2, y2 = hand.get_finger_by_tip(Finger.TIPS.MIDDLE).landmarks[0][1:3]
 
@@ -45,28 +67,38 @@ class VirtualMouse:
                 x3 = np.interp(x1, (box_x1, box_x2), (0, self.screen_width))
                 y3 = np.interp(y1, (box_y1, box_y2), (0, self.screen_height))
 
-                try:
-                    autopy.mouse.move(self.screen_width - x3, y3)
-                except ValueError:
-                    if x3 <= 0:
-                        x3 = 1
+                if x3 <= 0:
+                    x3 = 1
 
-                    if y3 <= 0:
-                        y3 = 1
+                if y3 <= 0:
+                    y3 = 1
 
-                    if x3 >= self.screen_width:
-                        x3 = self.screen_width - 1
+                if x3 >= self.screen_width:
+                    x3 = self.screen_width - 1
 
-                    if y3 >= self.screen_height:
-                        y3 = self.screen_height - 1
+                if y3 >= self.screen_height:
+                    y3 = self.screen_height - 1
 
-                    autopy.mouse.move(self.screen_width - x3, y3)
+                EventDispatcher.dispatch(Move(self.screen_width - x3, y3))
             else:
                 pass
-                # length, image, _ = self.hand_detector.find_distance(self.hand_detector.fingers.index,
-                #                                                     self.hand_detector.fingers.middle, image)
 
         if self.debug_mode:
             self.debug()
 
         return image
+
+    def handle_mouse_move(self, hands):
+        pass
+
+    def handle_left_click(self):
+        pass
+
+    def handle_right_click(self):
+        pass
+
+    def handle_middle_click(self):
+        pass
+
+    def handle_scroll(self):
+        pass

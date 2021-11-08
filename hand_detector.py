@@ -1,10 +1,12 @@
 from __future__ import annotations
+from functools import reduce
 from collections import namedtuple
 import mediapipe
 import numpy as np
 import cv2.cv2 as cv
 from typing import NamedTuple, Optional, List
 from mediapipe.python.solutions.hands_connections import HAND_CONNECTIONS
+from debug import Debugger
 
 Fingers = namedtuple("Fingers", ("THUMB", "INDEX", "MIDDLE", "RING", "PINKY"))(4, 8, 12, 16, 20)
 
@@ -30,26 +32,23 @@ class Finger:
 
 
 class Hand:
-    def __init__(self, image: np.ndarray, left: bool, wrist=None, fingers: Optional[List[Finger]] = None):
+    def __init__(self, image: np.ndarray, left: bool, wrist=None, landmarks: Optional[List[int]] = None,
+                 fingers: Optional[List[Finger]] = None):
         self.image = image
         self.left = left
-        self.fingers = fingers if fingers is not None else []
         self.wrist = wrist
+        self.fingers = fingers if fingers is not None else []
+        self.landmarks = landmarks if landmarks is not None else []
 
-    def get_finger_by_tip(self, tip: int) -> Finger:
-        for finger in self.fingers:
-            if finger.tip == tip:
-                return finger
-
-        raise Exception("Invalid tip id")
+    def get_finger_by_tip(self, tip: int) -> Optional[Finger]:
+        return next((finger for finger in self.fingers if finger.tip == tip), None)
 
     @property
     def landmarks(self) -> List:
         landmarks = [self.wrist]
 
         for finger in self.fingers:
-            for landmark in finger.landmarks:
-                landmarks.append(landmark)
+            landmarks.extend(landmark for landmark in finger.landmarks)
 
         return landmarks
 
@@ -69,18 +68,12 @@ class Hand:
                     break
 
     def fingers_up(self) -> List[bool]:
-        fingers = []
-
-        for finger in self.fingers:
-            fingers.append(finger.up(self.left))
-
-        return fingers
+        return [finger.up(self.left) for finger in self.fingers]
 
     def find_distance(self, landmark1: int, landmark2: int) -> int:
-        x1, y1 = self.landmarks[landmark1][1:3]
-        x2, y2 = self.landmarks[landmark2][1:3]
+        def diff(first, second): return second - first
 
-        return np.hypot(x2 - x1, y2 - y1)
+        return np.hypot(reduce(diff, self.landmarks[landmark1][1:3]), reduce(diff, self.landmarks[landmark2][1:3]))
 
 
 class HandDetector:
@@ -93,7 +86,6 @@ class HandDetector:
             track_confidence: float = 0.5
     ):
         self.image: Optional[np.ndarray] = None
-        self.hands: List[Hand] = []
         self.results: Optional[NamedTuple] = None
 
         self.debug_mode = debug_mode
@@ -110,33 +102,16 @@ class HandDetector:
             self.mode, self.max_hands, 0, self.detection_confidence, self.track_confidence
         )
 
-    def find_hands(self) -> List[Hand]:
-        image_rgb = cv.cvtColor(self.image, cv.COLOR_BGR2RGB)
-        self.results = self.hands_pipe.process(image_rgb)
-        self.hands = []
-        h, w, _ = self.image.shape
-
-        if self.results.multi_hand_landmarks is not None:
-            for hand_number, classification in enumerate(self.results.multi_handedness):
-                hand = Hand(self.image, classification.classification[0].index == 1)
-                hand.landmarks = self.results.multi_hand_landmarks[hand_number].landmark
-                self.hands.append(hand)
-
-            if self.debug_mode:
-                self.debug()
-
-        return self.hands
-
+    @Debugger
     def debug(self):
-        xx, yy = [], []
+        if not self.debug_mode or self.results.multi_hand_landmarks is None:
+            return
 
         for hand_landmarks in self.results.multi_hand_landmarks:
             self.draw_utils.draw_landmarks(self.image, hand_landmarks, HAND_CONNECTIONS)
 
         for hand in self.hands:
-            for landmark in hand.landmarks:
-                xx.append(landmark[1])
-                yy.append(landmark[2])
+            xx, yy = tuple(landmark[1] for landmark in hand.landmarks), tuple(landmark[2] for landmark in hand.landmarks)
 
             for finger in hand.fingers:
                 if finger.up(hand.left):
@@ -148,6 +123,21 @@ class HandDetector:
                 cv.line(self.image, (x1, y1), (x2, y2), (0, 0, 255), 3)
                 cv.circle(self.image, (int(x1 + x2) // 2, int(y1 + y2) // 2), 15, (0, 255, 0), cv.FILLED)
 
-        min_x, max_x = min(xx), max(xx)
-        min_y, max_y = min(yy), max(yy)
-        cv.rectangle(self.image, (min_x - 20, min_y - 20), (max_x + 20, max_y + 20), (255, 255, 255), 2)
+            min_x, max_x = min(xx), max(xx)
+            min_y, max_y = min(yy), max(yy)
+            cv.rectangle(self.image, (min_x - 20, min_y - 20), (max_x + 20, max_y + 20), (255, 255, 255), 2)
+
+    @property
+    @debug.after(recursive=False)
+    def hands(self):
+        image_rgb = cv.cvtColor(self.image, cv.COLOR_BGR2RGB)
+        self.results = self.hands_pipe.process(image_rgb)
+
+        if self.results.multi_hand_landmarks is not None:
+            return [
+                Hand(self.image, classification.classification[0].index == 1,
+                     landmarks=self.results.multi_hand_landmarks[hand_number].landmark)
+                for hand_number, classification in enumerate(self.results.multi_handedness)
+            ]
+
+        return []
