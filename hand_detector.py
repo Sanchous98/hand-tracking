@@ -3,7 +3,7 @@ from functools import reduce
 from collections import namedtuple
 import mediapipe
 import numpy as np
-import cv2.cv2 as cv
+import cv2 as cv
 from typing import NamedTuple, Optional, List
 from mediapipe.python.solutions.hands_connections import HAND_CONNECTIONS
 from debug import Debugger

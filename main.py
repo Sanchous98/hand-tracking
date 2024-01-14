@@ -1,5 +1,5 @@
 import pyautogui
-import cv2.cv2 as cv
+import cv2 as cv
 from time import time
 from typing import Dict, Union
 from hand_detector import HandDetector

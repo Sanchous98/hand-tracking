@@ -1,4 +1,4 @@
-import cv2.cv2 as cv
+import cv2 as cv
 from event_dispatcher import Event, EventDispatcher
 from hand_detector import HandDetector, Fingers
 import numpy as np
